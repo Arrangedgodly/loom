@@ -1,0 +1,214 @@
+# LOOM — Build Plan
+
+Source brief: docs/ultron/town-hall.md (approved 2026-08-27). Scope is frozen. This plan contains no production code.
+
+Lanes (owner roles): **ARCH** architecture lead · **CA** frontend — automata core · **AUD** frontend — audio engine · **VIS** UI/visual design · **SHELL** UI/shell & states · **A11Y** accessibility · **QA** test/reliability · **TUNE** product/taste.
+Backend, DevOps, security lanes: N/A per brief (no backend, no deploy in scope, zero user data).
+
+All work happens in one file: `/Users/arrangedgodly/Documents/Projects/loom-synth/index.html`. Tasks must stay inside their contracted sections to avoid merge conflicts inside the file.
+
+## Fixed by scope (no re-litigation)
+
+Single self-contained `index.html`; vanilla JS + Canvas 2D + Web Audio; zero external resources; Rule 30; wraparound grid; single centered seed; fully deterministic; dark minimal/luminous; rising-edge triggers; scale-quantized 8–16 lanes; glassy sine/triangle plucks; runtime-synthesized convolver IR (feedback-delay fallback allowed); title "LOOM" / "Automata Generative Loom Synthesizer"; lean-back chrome (pause/play, volume, readout); `Space` toggle; glacial-ambient tempo as a named constant.
+
+## Task index (dependency-ordered)
+
+### T-ARCH — Single-file architecture skeleton — ARCH — completed
+- Outcome: `index.html` with head, styles, canvas, overlay placeholder, and clearly delimited script sections (constants block; CA engine; scheduler; synth; renderer; shell/state controller) plus commented contracts between them.
+- Scope: enabling task for everything; no behavior yet.
+- Inputs: brief. Output: skeleton that opens without console errors.
+- Deps: none. Parallel: none.
+- Files: `index.html` (created).
+- Acceptance: file opens to a blank dark canvas + placeholder overlay, zero console errors; each section header comment states its contract (what it consumes/produces). Validation: open in browser, console clean.
+- Risks: none material. Size: small.
+
+### T-CA — Rule 30 core + ring buffer — CA — completed
+- Outcome: deterministic Rule 30 engine on a wraparound finite grid, single centered seed; bounded row ring buffer; per-row rising-edge extraction (cells newly black) exposed as the trigger contract.
+- Scope: pure logic, no DOM/audio. Journey: the weave itself.
+- Inputs: T-ARCH contracts. Output: engine API (advanceRow, getRow, rising edges, seed/reset).
+- Deps: T-ARCH. Parallel: T-SHELL.
+- Files: CA section of `index.html`.
+- Acceptance: embedded self-test (URL param `?selftest`) verifies (a) first rows from single centered seed match the canonical Rule 30 sequence, (b) wraparound columns are toroidal, (c) ring buffer discards oldest rows at capacity with no unbounded growth, (d) reset reproduces identical rows (criterion 6). Validation: `?selftest` run, all green in console.
+- Risks: seed/grid-width constants must live in the shared constants block. Size: medium.
+
+### T-VIS — Tapestry renderer — VIS — completed
+- Outcome: dark-luminous Canvas renderer; new rows appear at top, tapestry scrolls down at tick rate; glowing cells; responsive canvas with devicePixelRatio correctness.
+- Scope: visual render loop decoupled from CA generation (renders from ring buffer). Journey: the promise made visible.
+- Inputs: T-ARCH, T-CA ring buffer. Output: render API (feed row, tick scroll, pulse hooks).
+- Deps: T-ARCH, T-CA. Parallel: T-SHELL.
+- Files: renderer section; styles.
+- Acceptance: silent weave animates smoothly at target tick rate; resize keeps cells square and grid centered; no layout thrash. Validation: visual inspection + rAF fps counter in a debug mode.
+- Risks: full-redraw vs row-sprite shift performance → resolved in T-PERF, not here. Size: medium.
+
+### T-SHELL — Title card, state machine, chrome — SHELL — completed
+- Outcome: LOOM overlay (title + subtitle + Begin), states idle→running→paused→hidden→resumed, fade-on-mouse-move chrome (pause/play, volume slider, rule/scale readout), `Space` toggle.
+- Scope: presentation + state controller only; audio hooks call scheduler contract. Journey: land → Begin → control.
+- Inputs: T-ARCH contracts. Output: shell wired to scheduler start/pause/resume APIs (stubs acceptable until T-SCHED).
+- Deps: T-ARCH. Parallel: T-CA, T-VIS.
+- Files: overlay/chrome markup + styles, state controller section.
+- Acceptance: Begin gesture unlocks AudioContext (context `running` after click); pause freezes weave + suspends audio; hidden tab auto-suspends; mouse-idle hides chrome. Validation: interactive check across states.
+- Risks: none material. Size: medium.
+
+### T-SCHED — Audio clock + lookahead scheduler — AUD — completed
+- Outcome: lookahead scheduler that binds CA row advancement to the Web Audio audio clock; tick timing derived from `AudioContext.currentTime`; visibility-change suspend/resume without drift or note pile-up.
+- Scope: scheduling only — which row plays when. Journey: infinite, drift-free soundtrack.
+- Inputs: T-ARCH, T-CA trigger contract, RQ1 research disposition. Output: scheduler API (start/pause/resume, onTick(row, audioTime)).
+- Deps: T-ARCH, T-CA (RQ1 committed — implement the Wilson lookahead pattern per docs/ultron/research/rq1-audio-clock-binding.md). Parallel: T-SYNTH (against contract).
+- Files: scheduler section.
+- Acceptance: notes fire only from scheduled audio times (never `setTimeout` fire); late-note instrumentation counter available for T-ENDUR; begin-to-first-note ≤200ms after Begin (criterion 1); suspend/resume produces no burst of stale notes. Validation: instrumented run + console timing log.
+- Risks: the core technical risk of the project — mitigated by RQ1 before implementation. Size: medium.
+
+### T-SYNTH — Voice, mapping, reverb — AUD — completed
+- Outcome: glassy sine/triangle pluck voice (slow attack, long release); rising-edge→note mapping through scale quantization into 8–16 lanes; polyphony cap; convolver reverb with runtime-synthesized IR; feedback-delay fallback if convolver proves costly (decision recorded at build time).
+- Scope: how a trigger sounds. Journey: the signature voice.
+- Inputs: T-ARCH constants (scale, lanes, tempo, polyphony in one tunable block). Output: playNote(lane, velocity, audioTime) API.
+- Deps: T-ARCH. Parallel: T-SCHED (against contract).
+- Files: synth + reverb sections, constants block.
+- Acceptance: notes scheduled at future audioTimes render in tune and in scale; all musical constants editable in one place; CPU stays reasonable with cap active. Validation: short instrumented jam run.
+- Risks: musicality unknown until integration — tuning handled in T-TUNE, not here. Size: medium.
+
+### T-AVBIND — Audio-visual pulse binding — VIS — completed
+- Outcome: cells bloom/pulse at the exact audio-scheduled moment their note fires — visual pulses driven by scheduled audio times correlated to rAF, not guessed.
+- Scope: criterion 2 only. Journey: sequencer legibility.
+- Inputs: T-VIS pulse hooks, T-SCHED onTick(audioTime), T-SYNTH. Output: pulse events synced within perception threshold.
+- Deps: T-VIS, T-SCHED, T-SYNTH. Parallel: T-A11Y.
+- Files: renderer pulse path.
+- Acceptance: ear/eye verification — pulse and note coincide perceptibly; no pulse without note. Validation: interactive observation.
+- Follow-up from T-SCHED: fix double-fed released counter — one-row visual offset + opening catch-up transient.
+- Risks: small. Size: small.
+
+### T-A11Y — Accessibility floor — A11Y — completed
+- Outcome: aria labels on overlay/controls, keyboard-operable Begin/pause/volume, `prefers-reduced-motion` pauses auto-scroll (audio continues).
+- Scope: accessibility floor from brief. Journey: entry for all visitors.
+- Inputs: T-SHELL. Output: compliant shell.
+- Deps: T-SHELL. Parallel: T-AVBIND.
+- Files: overlay/chrome markup + styles.
+- Acceptance: keyboard-only user can Begin and pause; reduced-motion emulation freezes scroll; labels announced. Validation: keyboard pass + reduced-motion emulation.
+- Risks: none material. Size: small.
+
+### T-PERF — Performance pass — QA — completed
+- Outcome: verified 60fps scrolling on a 2020-class laptop at default grid; renderer optimization if needed (offscreen row cache / drawImage shift).
+- Scope: criterion 3.
+- Inputs: T-VIS, T-SCHED, T-AVBIND integrated. Output: smooth tapestry.
+- Deps: T-VIS, T-SCHED, T-AVBIND. Parallel: T-A11Y.
+- Files: renderer internals (if optimization needed).
+- Acceptance: sustained 60fps (or display refresh) in debug fps mode over a 5-min run. Validation: fps counter + Performance panel.
+- Risks: may force renderer refactor — contained to renderer section. Size: small/medium.
+
+### T-ENDUR — Endurance & acceptance verification — QA — completed
+- Outcome: instrumented long-run verification of criteria 4–7: 60-min memory flat, 30-min zero late notes, reload determinism, zero network requests from `file://`.
+- Scope: evidence for the endurance claims.
+- Inputs: all integrated. Output: recorded results in production-log.
+- Deps: T-SCHED, T-SYNTH, T-VIS, T-SHELL (full integration). Parallel: T-TUNE (after integration).
+- Files: instrumentation in debug mode only (stripped or dormant in ship mode).
+- Acceptance: all four checks pass with recorded numbers. Validation: heap snapshots, late-note counter, diff of two session traces, network panel.
+- Risks: discovering drift/memory growth → returns to owning task with evidence. Size: medium (long observation, low intensity).
+
+### T-TUNE — Ear-tuning pass + final gate — TUNE — awaiting-approval
+- Preparation complete 2026-08-27: tuning surface verified (all 18 TODO-tune constants wired), tuning guide recorded in production-log, regression green (?selftest 27 lines/0 FAIL, node --check, zero console, file:// clean, byte-identical to T-ENDUR baseline). No musical values changed. NOW AWAITS THE OWNER'S EAR: listen → approve (lock constants, strip TODO-tune markers) or request plain-language adjustments (constants-only round via the guide table).
+- Outcome: tempo, scale, lane count, polyphony, reverb mix, glow tuned to the owner's ear; final human sign-off (criterion 8).
+- Scope: constants only — no structural change (structural findings go back to owning task).
+- Inputs: T-SYNTH, T-AVBIND, T-SHELL integrated. Output: locked constants; owner sign-off recorded.
+- Deps: T-SYNTH, T-AVBIND, T-SHELL. Parallel: T-ENDUR.
+- Files: constants block only.
+- Acceptance: owner listens and approves the piece as a whole. Validation: human gate — this task's approval belongs to the user.
+- Risks: owner unavailable → waits (user-facing gate). Size: small.
+
+## Milestones
+
+- **M1 — Silent weave (T-ARCH→T-CA/T-SHELL/T-VIS):** Begin → deterministic tapestry scrolls, no sound. Exposes grid/render/states assumptions early; criterion 6 checkable.
+- **M2 — Sound (T-SCHED + T-SYNTH + T-AVBIND after RQ1):** full generative soundtrack with visible pulses; criteria 1, 2 checkable.
+- **M3 — Complete experience (T-A11Y):** chrome, keyboard, reduced-motion; states complete.
+- **M4 — Ship evidence (T-PERF → T-ENDUR + T-TUNE):** criteria 3–8 all verified; constants locked.
+
+## Research queue (for $deep-research-supreme)
+
+- **RQ1 — COMMITTED 2026-08-27, auto-approved (ultron-supreme).** Evidence: `docs/ultron/research/rq1-audio-clock-binding.md` (includes a contingency spike — Worker timer — only if background playback is ever wanted). Pattern: classic Wilson lookahead scheduler — `setInterval(100ms)` drives scheduling with SCHEDULE_AHEAD = 2.0s; row tick times accumulated via `nextRowTime += rowInterval` against `AudioContext.currentTime` (never wall clock); a `{row, audioTime}` notes-in-queue is consumed by the rAF render loop (fire visual pulse when `audioTime <= ctx.currentTime`) for exact cell-bloom/audio correlation; on `visibilitychange` (tab hidden) stop the timer and `ctx.suspend()`; on resume `ctx.resume()` and rebase `nextRowTime = currentTime + 0.15s` to avoid note pile-up. rAF-driven lookahead rejected as sole driver (rAF pauses in background tabs; couples audio horizon to render perf). **T-SCHED is unblocked.**
+
+## Handoff
+
+- v1 shipped 2026-08-27 — owner approved the piece (criterion 8; recorded in town-hall v2 Addendum). v2 executes below.
+- Build order: T-ARCH → (T-CA ∥ T-SHELL) → T-VIS → (T-SCHED ∥ T-SYNTH) → T-AVBIND → (T-A11Y ∥ T-PERF) → (T-ENDUR ∥ T-TUNE). Research phase done (RQ1 committed); order unchanged.
+- Fixed by scope: listed above; changes reopen Town Hall (halt).
+- Delegated to research: RQ1 only — COMMITTED 2026-08-27 (see Research queue); no open research items remain. Musical constants are production-tuned (T-TUNE), not researched.
+- Assumptions that reopen Town Hall if broken: single-file constraint; lean-back interactivity; deterministic single seed; no persistence/networking; the eight acceptance criteria.
+- Approval needed before research begins: user reviews this plan once (below); after that ultron-supreme self-approves through production per its mandate.
+
+---
+
+# v2 Plan — Customization & WebMCP
+
+Source: docs/ultron/town-hall.md — v2 Addendum (approved 2026-08-27). Scope frozen: curated controls, URL-hash config, MCP tool surface mirroring the controls one-to-one; criteria ⑨–⑫ added; criteria 1–8 must not regress. v1 lanes carry over; single-file constraint preserved in two modes — `file://` lean-back piece (v1 behavior) and http(s) origin with MCP active. This plan contains no production code.
+
+## v2 task index (dependency-ordered)
+
+### V2-ENGINE — Reconfigurable engine — CA/AUD — completed
+- Preparation complete 2026-08-28: config contract live (section [7], namespace Loom — getState/applyConfig/applyRule/applyTempo/applyScale/reseed/setVolume + scales registry + limits), rule/tempo/scale/seed/volume runtime-reconfigurable, mid-flight reconfig instrumented clean, ?selftest 29 checks + 5 banners all green (v1 suites unregressed), default state verified bit-identical v1. Verified 2026-08-28 by independent verifier (61/61 own-harness checks + convergence probe; evidence in production-log V2-ENGINE verification entry).
+- Outcome: rule (0–255), tempo, scale, and seed runtime-reconfigurable: rule as a parameter of the CA engine (ring buffer/reset preserved); reseed with deterministic, hash-encodable seed derivation (no un-encodable randomness — e.g., seed id → derived row); `setTempo` adjusts `ROW_INTERVAL_S` live without audio-clock drift (rebase like the suspend/resume pattern); `setScale` swaps scale degrees + readout; every parameter change keeps the scheduler grid coherent (no bursts/late notes) and pulses synced (criterion ⑫ at engine level). Exposes a single config state object + apply functions as the contract for controls/MCP/hash.
+- Scope: engine mechanics only — no chrome, no hash encoding, no protocol surface.
+- Inputs: v1 contracts (constants, CA engine, scheduler, synth). Output: config state object + apply functions (`setRule`/`setTempo`/`setScale`/`reseed`) — the single contract consumed by V2-CTL, V2-STATE, V2-MCP.
+- Deps: none (v1 complete). Parallel: none.
+- Files: sections [1]/[2]/[3]/[4] as contractually needed.
+- Acceptance: `?selftest` extended with reconfiguration determinism (same params → same weave; rule N canonical sequences spot-checked — e.g., 90, 110, 184); selftest green; no regressions to criteria 1–8 mechanics; live reconfig instrumented clean. Validation: `?selftest` run + instrumented live-reconfig session (late-note counter, pulse-sync check).
+- Risks: tempo rebase mistimed → follow the RQ1 suspend/resume rebase pattern; derived-seed determinism → covered by selftest. Size: medium.
+
+### V2-CTL — Control panel UI — SHELL/VIS — completed
+- Follow-up completed 2026-08-28 (V2-VERIFY's one minor cosmetic finding — the task stays completed, this note records the fix): the chrome readout's TEMPO segment lagged EXTERNAL tempo-only writes (script `Loom.applyTempo` / MCP `set_tempo` as the last write — [7]'s applyRule/applyScale called the `Shell.refreshReadout` seam but applyTempo did not, and showChrome synced the controls but not the text; it healed on the next rule/scale write, UI tempo commit, or Begin). Fix (one seam, zero engine changes — [7] untouched): [6]'s readout (and the canvas aria-label it rewrites) now SUBSCRIBES to the [7] `Loom.onChange` notifier — the same seam the URL hash rides — so ANY successful mutator refreshes it within one notification cycle; the arm is deferred to a microtask past the parse task (init runs before [7] parses — the onVolumeInput TDZ precedent), retried idempotently at every chrome reveal, with a refresh-on-arm absorbing any pre-arm write. The listener is deliberately uncoalesced: write-only DOM updates, no layout reads (no forced reflow under bursts; at most one paint/frame) and `?selftest` asserts the text synchronously; rule/scale writes now refresh twice (same string — idempotent no-op). Validated (own raw-CDP harness, 35/35): idle- and running-page external applyTempo → readout same-tick truthful with no interaction in between; MCP-path set_tempo through loom-bridge.mjs (live page attached, 8 tools) → readout truthful, negative isError leaves it unchanged; UI keyboard commit one applyTempo + full pointer drag zero-mid-drag-commits/one at release with readout truthful; rule/scale/reseed/setVolume/applyConfig writes all keep it truthful; 1000-mutator burst = 1000 notifications + 1000 synchronous refreshes in ~2.8 ms, hash rAF-coalesced to the final value; `?selftest` exactly 35+6 / 0 FAIL; node --check PASS; zero console entries; file:// 1 request; tempo-only hash boot still heals. Evidence: production-log V2-CTL follow-up entry; harness /tmp/v2ctlfix. **Verified 2026-08-28 by independent verifier (dispatch 19): PASS — 69/69 own-harness checks across 4 sessions (file:// + bridge-http), incl. first-external-eval-after-load same-tick truthful (the arm beats all writers), containment PROVEN by sha reconstruction (pre-fix a63e5a65 + exactly the 7 disclosed hunks = shipped e2830fff; sections [1]–[5]/[7]/[8]/[9] + loom-bridge.mjs byte-untouched), running-page burst 3.90 ms/1000 with zero layout reads, ?selftest 35+6/0 FAIL, fresh-profile 0.150/[69,71]/0.400 identity; evidence in production-log V2-CTL follow-up verification + FINAL RUN AUDIT entry; harness /tmp/verifier19.**
+- Preparation complete 2026-08-28: config panel live as a sibling surface INSIDE the existing chrome (a mixer toggle in the pill opens a glassy panel above it — inherits the fade/focus-keepalive/Tab-summon rules for free). Rule 0–255 number input + preset chips 30/90/110/184 (aria-pressed active state), tempo slider (bounds from Loom.limits; commit-on-release for pointer drags — ONE applyTempo per drag, zero rebase thrash; keyboard arrows commit per press), scale picker (options from Loom.scales), Reseed (new random-but-encodable seed id via the file's single Math.random, once per click — sanctioned user-initiated config choice) and Reset (canonical rule/tempo/scale/seed through one applyConfig; volume deliberately untouched). All wiring through the Loom contract only; controls resync from getState() on every chrome reveal (external writers reflected, incl. the volume-slider heal). Readout now rule · scale · tempo. Validated 2026-08-28: own CDP harness 39/39 (selftest 29+5 banners, full trusted-keyboard walk, rapid mid-run chip/scale/reseed flips + tempo drag with zero late notes/bursts/console errors, aria DOM + AX-tree snapshot, 1280/1024/900 geometry, fresh-profile v1 identity), node --check PASS, file:// clean (1 request everywhere). Verified 2026-08-28 by independent verifier (121/121 own-harness checks across 5 sessions: every control incl. invalid-input rejection + 0/255 bounds, one-commit tempo drag event-verified, all 8 scales via trusted type-ahead, reseed/reset semantics, full keyboard/aria/fade walk, rapid mid-run with every inter-fire gap a live grid value, 1280/1024/portrait geometry + vision-inspected screenshots, fresh-profile 0.150/0.400 identity vs the verifier's own rule-30 reference, static contract-only wiring scan; evidence in production-log V2-CTL verification entry).
+- Outcome: chrome additions — rule control (0–255 picker + preset chips 30/90/110/184 at minimum), tempo, scale, reseed button — wired ONLY to the V2-ENGINE config contract; readout reflects live config.
+- Scope: presentation + wiring only; zero engine logic in the chrome.
+- Inputs: V2-ENGINE config contract. Output: controls joined to the existing fade-in chrome.
+- Deps: V2-ENGINE. Parallel: V2-STATE (once engine lands).
+- Files: overlay/chrome markup + styles; shell wiring.
+- Acceptance: criterion ⑨ (all controls across legal state combinations); keyboard-operable + aria per the existing a11y floor; fade-in chrome behavior, focus rules, `Space` handling preserved; zero console errors; `?selftest` green. Validation: interactive walk across control combinations + keyboard-only pass.
+- Risks: chrome clutter diluting the lean-back piece → curated presets; VIS lane judgment. Size: medium.
+
+### V2-STATE — URL hash configuration — SHELL — completed
+- Preparation complete 2026-08-28: hash grammar live (section [8], namespace LoomState — `#r=<rule>&t=<rowsPerSecond>&s=<scaleId>&d=<seedId>&v=<volume>`; unknown/future keys ignored, malformed values per-key fallback, out-of-range tempo/volume clamped; canonical encoding omits default-valued keys so the default state IS no hash), applied at boot through `Loom.applyConfig` BEFORE the first rendered frame (synchronous script execution — frame one draws the hashed rule/seed, never a flash of the default weave; shell stays idle at the title card — running state is not hash state), URL canonicalized in place at load; every successful Loom mutator fires the new [7] `onChange` seam → rAF-coalesced `history.replaceState` (≤1 rewrite/frame, exact at rest, zero history entries) — the [6] volume slider now routes through `Loom.setVolume` so its writes reach the hash; Copy link button in the config panel (navigator.clipboard → execCommand → selected-input fallback, file:// included, polite-region feedback inside the fade rules); no localStorage. `?selftest` adds the [V2-STATE selftest] suite — round-trip property (criterion ⑪) over 12 representative+edge configs, parse robustness, malformed/clamp end-to-end, live sync + history hygiene, copy-link surface. Validated 2026-08-28: own CDP harness 65/65 ×2 stability runs (selftest 35 PASS + 6 banners / 0 FAIL plain AND hashed; hashed loads exact incl. first-painted-frame probe; 25-case malformed/partial/unknown matrix; panel-driven hash via trusted drags/typing/reseed/reset; copy-link all three paths + Escape dismissal; zero new history entries; zero console errors; file:// 1 request; v1 identity intact — first fire row 1 edges [69,71], first frame = single centered cell on plain loads; shared-link weave determinism), node --check PASS, one documented dev-mode-only interaction ([4]'s async T-SYNTH restore vs the hash on ?selftest pages — ship mode unaffected). Evidence: docs/ultron/production-log.md V2-STATE entry; harness in /tmp/v2state. **Independent verification 2026-08-28: FAIL — one defect** (verifier's own from-scratch raw-CDP harness, 370/371 checks; evidence in production-log V2-STATE verification entry): every criterion (a)–(g) PASSES except the zero-console-errors gate — [8]'s copy-fallback rescue-input `dismiss` double-fires (Escape → `remove()` → synchronous blur → second `remove()`) throwing an uncaught NotFoundError on the user-reachable all-blocked-clipboard path; dismissal still functions and the blur-dismiss path is clean. One-line fix in [8] (idempotent dismiss), then re-verify the rescue path + one selftest pass. Returned to in-progress.
+- **Retry 1 complete 2026-08-28, verified — task completed:** the defect fixed with the minimal idempotent-dismiss guard in [8]'s `fallbackCopy` (a `dismissed` flag set BEFORE `ta.remove()`, so the reentrant synchronous-blur invocation no-ops — byte-diff vs the verifier's pre-fix extraction: exactly ONE hunk, nothing else touched). Scoped re-validation per the verifier's instruction: 85/85 ×2 stability runs — blocked-clipboard rescue dismissal via trusted Escape ×6 / trusted blur (click-away) ×6 / both-in-sequence ×6 each in three orderings (blur→Escape, Escape→blur, double-blur+double-Escape quadruple-fire) with ZERO console errors/exceptions and dismissal always functional; copy still succeeds on the execCommand fallback path (label "Copied", no rescue textarea left behind, announcement fired); ?selftest exactly 35 check-PASS + 6 ALL-PASS banners / 0 FAIL on plain AND hashed loads; short ship-mode run zero console errors; file:// exactly 1 request everywhere; node --check PASS (208,414-char script). Negative control: a pre-fix copy in /tmp reproduces the NotFoundError 5/5 under the identical probe, the fixed repo file 0/5 — the harness demonstrably exercises the defect path. Harness: /tmp/v2state-retry. **Scoped re-verification 2026-08-28: PASS** (verifier's own from-scratch raw-CDP harness, 61/61 ×2 — 30 trusted rescue-dismissal repetitions across five variants incl. the defect's exact Escape path, quad-fire stress on the detached node, zero exceptions/zero error console anywhere; fallback copy succeeds with the exact URL announced; containment proven by the verifier's own diff = one hunk inside [8], sections [1]–[7] and all markup byte-identical; selftest 35+6/0 FAIL plain AND hashed; short ship-mode run console-clean, 1 file:// request; own negative control 5/5 pre-fix vs 0/5 fixed; evidence in production-log V2-STATE re-verification entry; harness /tmp/v2s-reverify).
+- Outcome: full config state (rule, tempo, scale, seed, volume) encoded in the URL hash; applied on load before first render; exact round-trip (criterion ⑪); updated on config change via `replaceState` (no history spam); no-hash load = canonical default state (rule 30, centered seed, locked v1 defaults); copy-config-link affordance in chrome.
+- Scope: encode/apply only — no localStorage, no persistence beyond the hash.
+- Inputs: V2-ENGINE config contract. Output: hash ⇄ config encode/apply + share-link affordance.
+- Deps: V2-ENGINE. Parallel: V2-CTL.
+- Files: shell/state controller section; chrome (copy-link affordance).
+- Acceptance: round-trip property tests via `?selftest` harness or CDP; shareable-link manual check. Validation: property/fuzz run + open-a-shared-link pass.
+- Risks: hash grammar creep → minimal, versionable grammar; seed encoding format is a production decision (v2 disposition table). Size: small/medium.
+
+### V2-MCP — MCP interface — SHELL — completed
+- Preparation complete 2026-08-28: RQ2 Option A implemented end-to-end — NEW section [9] (namespace LoomMCP; activation guard returns before any EventSource/fetch/modelContext exists on file://; SSE+POST channel to the bridge; 8 tools as thin Loom-contract calls + the shell's own pause transition; schemas generated from Loom.scales/limits; deterministic manifest; every result the new state snapshot; isError tool-execution errors for invalid args; -32602 unknown tools; navigator.modelContext bonus feature-detected) + the #mcp-status line in the config panel + NEW zero-dependency companion `loom-bridge.mjs` (serves index.html on 127.0.0.1:7331, PORT override; POST /mcp dual-era Streamable HTTP — modern stateless 2026-07-28 with server/discover, header checks -32020/-32022, ttlMs/cacheScope + legacy initialize echo, no sessions, 405 GET/DELETE; SSE proxy /bridge + /bridge/result with hello manifest push, 5 s call timeout, one-driver-at-a-time replacement, heartbeat; Origin 403 per spec + Host validation + trivial rate limit; graceful shutdown). Validated 2026-08-28 with BOTH clients: MCP Inspector CLI 2.4.0 (`npx -y @modelcontextprotocol/inspector --cli http://127.0.0.1:7331/mcp --transport http`) for tools/list + every tools/call, and a raw JSON-RPC client for the protocol-level matrix — own harness 70/70 ×3 stability runs (headless Chrome http mode: attach, trusted Begin, Inspector drives all 8 tools with live page verification incl. pause→audio suspended+weave frozen+get_state.paused, resume, hash #r=110&t=4&s=a-blues&d=42&v=0.35 via the [7] seam, 6 invalid-arg isErrors, unknown tool -32602, legacy+modern initialize/list/discover, header mismatch -32020, bad version -32022, unknown method 404/-32601, cross-origin 403, forged Host 403, GET /mcp 405, zero late notes, zero console entries; file:// fully inert 0 console/0 subresources/0 bridge attempts; one-driver takeover + detach -32000; bridge restart auto-reconnect with zero page exceptions; ?bridge= cross-origin hosted-page attach; ?selftest 35+6 banners/0 FAIL on http AND file://; node --check on both files PASS). Evidence: production-log V2-MCP entry; harness /tmp/v2mcp. Verified 2026-08-28 by independent verifier (own from-scratch harness /tmp/v2mv, worker harness never run; BOTH clients: verifier's own raw JSON-RPC client + MCP Inspector CLI 2.4.0 as the reference client — 135 substantive checks PASS, 0 defects: dual-era initialize/discover/list, 8 tool schemas deep-matched against the LIVE page contract, every tool driven with live-page verification incl. a rule-110 recurrence proof of the weave after tool-driven set_rule+reseed, get_state deep-equals the page snapshot, invalid-arg/unknown-tool/malformed/unknown-method/header/version error matrix, cross-origin 403 + forged-Host 403 + rate limit + body cap, one-driver takeover + immediate detach error on the genuine path + bridge-restart fail-soft with zero page errors, ?bridge= hosted-page attach, file:// fully inert with v1 behaviors + selftest 35+6/0 FAIL, zero console across whole http sessions, containment scan of [9] clean; two non-blocking behavior notes recorded — takeover-timeout nuance and the SIGKILL-only browser network line; evidence in production-log V2-MCP verification entry).
+- Outcome: RQ2's committed architecture (Option A, owner-approved 2026-08-28): (1) a zero-dependency companion bridge file `loom-bridge.mjs` (~120 lines) — serves index.html over http, implements POST /mcp as dual-era Streamable HTTP (modern stateless 2026-07-28 + legacy initialize), proxies tools/call to the live page over SSE+POST, Origin-check per spec; (2) the tool logic entirely in-page behind an activation guard (http(s) origin only, dormant on `file://`; v1 behavior intact) — tools mirroring the controls one-to-one: `get_state`, `set_rule`, `set_tempo`, `set_scale`, `reseed`, `set_volume`, `pause`, `resume`, reading/writing ONLY the V2-ENGINE config contract; one driver at a time, last write wins; (3) feature-detected `navigator.modelContext` (W3C WebMCP draft) as a bonus surface for in-browser agents. The page remains a single self-contained HTML file; the bridge is a separate optional file only MCP mode needs.
+- Scope: bridge file + in-page tool surface + `navigator.modelContext` feature-detect — no AI-only features, no multi-client sync.
+- Inputs: RQ2 research record (`docs/ultron/research/rq2-webmcp-protocol.md` — committed pattern + reference client method), V2-ENGINE config contract. Output: MCP-attachable page (http(s) mode) + optional companion bridge file.
+- Deps: V2-ENGINE + RQ2 committed. Parallel: none.
+- Files: new MCP section; origin detection + shell wiring (`index.html`); `loom-bridge.mjs` (new file, optional MCP-mode companion).
+- Acceptance: criterion ⑩ — a real MCP client connects, reads state, and drives every tool end-to-end via the RQ2 reference client (`npx @modelcontextprotocol/inspector --cli <url> --transport http`); `file://` regression clean; bridge-specific checks: dual-era initialize (modern stateless + legacy both negotiate), foreign-Origin request rejected 403, SSE proxy liveness (tools/call reaches the live page). Validation: Inspector CLI end-to-end session + `file://` single-request regression run.
+- Risks: dual-era protocol drift between bridge and spec revisions → follow the RQ2 record; bridge must stay zero-dependency and optional so the single-file page constraint holds. Size: medium.
+
+### V2-VERIFY — v2 acceptance verification — QA — awaiting-approval
+- Verification complete 2026-08-28 (evidence only, zero code changes — ship files byte-identical): **criteria ⑨–⑫ PASS with recorded evidence, v1 regression 1–8 green, both V2-MCP behavior notes confirmed non-blocking in ship configuration; ONE minor non-blocking finding recorded** (readout tempo segment lags external tempo-only writes — MCP set_tempo/script as the last write; hash/getState/controls/audio all truthful; tempo-only hash boot heals via Begin; cosmetic, one-line seam fix suggested for V2-CTL/[7]). Evidence: ⑨ 47/48 — boundary rules 0/255 typed + invalid rejected, tempo 0.5/8 + drag = one commit, all 8 scales, reseeds (exactly one Math.random per click), reset canonical, 28-write rapid interleaved storm: 121 fires with ALL 120 inter-fire gaps exact live-grid values (zero bursts, min gap exactly 1/8s), late/stale 0, grid re-established 4/4-with-room, hash+readout truthful; ⑩ 22/22 — dual-era initialize + MCP Inspector CLI 2.4.0 reference client: tools/list 8, every tool called exit-0 with live-page verification, get_state deep-equal, negative isError, real tab-close → −32000, hash rode the seam, zero console; ⑪ 51/51 fresh-load round-trips exact (my own canonical encoder) + 18/18 hostile hashes healed; ⑫ 19/19 — 653 pulses ALL bit-exact === note audioTime through rule/tempo/scale/reseed mid-flight changes, grid re-establishes, scroll tracks tempo, late/stale 0; v1: gesture→first-note 168–182ms in-page (lead exactly 150ms, row 1 [69,71]), 60.000fps × 185.1s full density (11,105 frames, 0 gaps >25ms), 20-min heap troughs flat 0.868/0.864/0.865/0.968MB with late/stale 0 throughout, determinism identical default×2 + hashed×2, file:// exactly 1 request everywhere, ?selftest 35+6/0 FAIL, a11y keyboard walk green, zero console errors in every session. Full numbers/methodology/deviations (incl. the CDP Enter headless-page-hide harness finding): docs/ultron/production-log.md V2-VERIFY entry; harness /tmp/v2final.
+- Outcome: criteria ⑨–⑫ verified with recorded evidence + full v1 regression (criteria 1–8 incl. 60fps spot-run, endurance spot-run, determinism, `file://` single-request); hash round-trip fuzz; MCP end-to-end; live-reconfig clock/pulse sync instrumentation.
+- Scope: evidence only — findings return to owning tasks with evidence.
+- Inputs: V2-CTL, V2-STATE, V2-MCP integrated. Output: recorded results in production-log.
+- Deps: V2-CTL, V2-STATE, V2-MCP. Parallel: none (final gate).
+- Files: instrumentation/selftest additions only (dormant in ship mode).
+- Acceptance: ⑨–⑫ pass with recorded evidence; v1 regression green. Validation: control-combination walk, hash fuzz, live MCP session, instrumented reconfig run, fps + endurance spot-runs.
+- Risks: discovering reconfig clock/pulse desync → returns to V2-ENGINE with evidence. Size: medium.
+
+## v2 milestones
+
+- **M5 — Configurable engine (V2-ENGINE):** rule/tempo/scale/seed live-reconfigurable behind one config contract; extended selftest green.
+- **M6 — Controls + hash complete experience (V2-CTL + V2-STATE):** curated chrome + shareable config links; criteria ⑨ and ⑪ checkable.
+- **M7 — MCP live (RQ2 → V2-MCP):** an external MCP client drives the loom end-to-end; criterion ⑩ checkable.
+- **M8 — Verified ship (V2-VERIFY):** criteria ⑨–⑫ verified with recorded evidence; full v1 regression green.
+
+## v2 research queue (for $deep-research-supreme)
+
+- **RQ2 — COMMITTED 2026-08-28, auto-approved (ultron-supreme; owner picked Option A).** Evidence: `docs/ultron/research/rq2-webmcp-protocol.md`. Pattern: zero-dependency companion bridge file `loom-bridge.mjs` (~120 lines) serves index.html over http, implements POST /mcp as dual-era Streamable HTTP (modern stateless 2026-07-28 + legacy initialize) with Origin-check per spec, and proxies tools/call to the live page over SSE+POST; tool logic lives entirely in-page behind an activation guard (http(s) origin only, dormant on file://); feature-detected `navigator.modelContext` (W3C WebMCP draft) as a bonus for in-browser agents; reference MCP client for verification = `npx @modelcontextprotocol/inspector --cli <url> --transport http`; the page stays single-file, the bridge is a separate optional file. **V2-MCP is unblocked.**
+
+## v2 handoff
+
+- Build order: RQ2 → V2-ENGINE → V2-CTL → V2-STATE → V2-MCP → V2-VERIFY. RQ2 was resolved before production as planned (COMMITTED 2026-08-28); nothing is blocked.
+- Constraint revision (owner-approved, Option A, 2026-08-28): V2-MCP ships an optional companion bridge file `loom-bridge.mjs`; the page itself stays a single self-contained HTML file (`file://` lean-back mode unchanged).
+- Task-cap note: 11 of 20 dispatches consumed by v1; v2 needs 5 build + verifier subagents (V2-ENGINE, V2-CTL, V2-STATE, V2-MCP, V2-VERIFY) plus the RQ2 research dispatch — stay within cap or halt for authorization.
+- Assumptions that reopen Town Hall if broken: single-file two-mode constraint (`file://` lean-back, http(s) MCP-active); MCP tools mirror controls one-to-one (no AI-only features); one MCP driver at a time, last write wins; no persistence beyond the URL hash; deterministic encodable seed; v1 criteria 1–8 must not regress.
+- Approval needed before research: one user review of this v2 plan; after that ultron-supreme self-approves through production per its mandate (v1 precedent).
