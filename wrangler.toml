@@ -1,0 +1,24 @@
+# wrangler.toml — the LOOM channel Worker (V3-WORKER, per the RQ3-committed
+# skeleton in docs/ultron/research/rq3-cloudflare-worker-do.md).
+# This is the WORKER config that `npx wrangler deploy` publishes (V3-DEPLOY,
+# owner-gated): the Durable Object + its migration. It is NOT a Pages config
+# (no pages_build_output_dir — see the production-log V3-WORKER entry for the
+# flagged Pages DO-binding TOML question owned by V3-DEPLOY).
+#
+# Local dev (the V3-WORKER recipe):
+#   npx wrangler dev                       # → http://localhost:8787 (the DO)
+#   npx wrangler pages dev . --do LOOM_CHANNEL=LoomChannel@loom-channel
+#                                          # → http://localhost:8788 (pages
+#                                          #   + functions/ forwarders)
+name = "loom-channel"
+main = "mcp-worker.js"
+compatibility_date = "2026-04-07"   # >= this enables WS auto close-reply; later is fine
+workers_dev = false                 # true only if a workers.dev probe URL is wanted
+
+[[durable_objects.bindings]]
+name = "LOOM_CHANNEL"
+class_name = "LoomChannel"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["LoomChannel"]   # SQLite backend — required on Free plan

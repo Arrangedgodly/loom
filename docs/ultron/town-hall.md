@@ -148,3 +148,36 @@ No click-to-seed/cell drawing. No voice/instrument timbre controls. No palette c
 ## v2 sign-off record
 
 Clusters (problem amendment, MVP/non-goals, success measures, dispositions) signed off via user's standing approval ("all as recommended", 2026-08-27) after explicit Q10–Q14 approvals. Challenger/Advocate for the controls expansion was heard and answered in v1's brief (Cluster 2) and in the reopening round.
+
+---
+
+# v3 Addendum — Public MCP Endpoint (approved 2026-08-28)
+
+Trigger: owner wants MCP prompt-driving on the live site (loom.arrangedgodly.com) with zero local process; v2's bridge is localhost-only by design. Town-hall reopened; Q15–Q18 + measures approved ("Approved", 2026-08-28).
+
+## v3 MVP
+
+1. **Cloudflare Worker + Durable Object** replaces the local bridge's role publicly: the Worker owns `POST /mcp` (dual-era Streamable HTTP per RQ2 semantics) on loom.arrangedgodly.com; the DO holds the page-attach channel (SSE per research), one-driver slot, and tool-call proxying — same 8 tools, unchanged, one-to-one with the panel.
+2. **Opt-in consent (Q15):** the page attaches only after the visitor flips a visible "Allow remote control" toggle — default off, session-only memory (no storage). Un-opted visitors are pure viewers; the status line shows *remote control active* while a driver is connected.
+3. **Drive-one semantics (Q16):** the driver commands the most-recently-attached opted-in tab (port of verified one-driver/last-write semantics). Shared-state "global loom" recorded as the v4 experiment.
+4. **Infra in repo (Q18):** `mcp-worker.js` + `wrangler.toml`; Pages keeps serving the page; Worker owns the /mcp route. Owner runs `npx wrangler login` once (wizard-lane); each deploy and each `git push` halts for explicit owner go (external publishing stays halt-listed).
+
+## v3 non-goals
+
+No new tools. No shared-state/multi-tab sync (v4 candidate). No auth tokens beyond the opt-in consent model. No analytics. No auto-deploy CI.
+
+## v3 success measures
+
+⑬ Remote MCP client over the public internet (Inspector CLI) drives an opted-in live tab end-to-end. ⑭ Consent enforced: default-off, no attach/no SSE, status truthful at every state. ⑮ Zero regression: local bridge + ?bridge=, file:// inert, static single-file page unchanged, criteria 1–12 hold. ⑯ Workers free tier: measured cost profile documented against tier limits.
+
+## v3 open-question dispositions
+
+| Question | Owner | Blocking |
+|---|---|---|
+| Workers/DO feasibility specifics (free-tier limits incl. DO SQLite availability, SSE support in Workers/DO, official MCP-on-Workers reference patterns, same-domain routing vs Pages Functions) | research (RQ3) | Non-blocking for planning; blocking V3-WORKER |
+| Toggle/status-line interaction details | production | No |
+| Deploy runbook details | production (with owner-gated publishing steps) | No |
+
+## v3 sign-off record
+
+Problem/consent/semantics/surface/deploy/measure clusters signed off via owner's explicit "Approved" (2026-08-28) after the Q15–Q18 round with recommendations; Challenger positions on consent (fully-open, owner-token) and semantics (shared-state) heard and rejected with rationale above.

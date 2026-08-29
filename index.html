@@ -27,7 +27,7 @@
     [6] SHELL / STATE      title card, chrome, config panel      (T-SHELL/V2-CTL)
     [7] LOOM CONFIG        runtime reconfiguration contract      (V2-ENGINE)
     [8] LOOM STATE         URL-hash config state + share link    (V2-STATE)
-    [9] LOOM MCP           external tools, http(s) only          (V2-MCP)
+    [9] LOOM MCP           external tools, http(s) only          (V2-MCP/V3-PAGE)
 
   Current status: T-ARCH skeleton + T-CA engine + T-SHELL shell + T-VIS
   renderer + T-SCHED scheduler + T-SYNTH synth + T-AVBIND audio-visual
@@ -126,6 +126,23 @@
   lean-back piece unchanged — and a feature-detected
   navigator.modelContext bonus (W3C WebMCP draft) registers the same
   tools for in-browser agents only where that API exists.
+  Since V3-PAGE the public path is CONSENT-GATED: on http(s) origins
+  without ?bridge=, an "Allow remote control" checkbox in the config
+  panel (default off, session-only — DOM state, no storage API)
+  governs a same-origin WEBSOCKET attach to the v3 Durable Object
+  endpoint (wss://<host>/attach; ?attach=<ws url> is the dev
+  override). Un-opted pages make zero network attempts of any kind;
+  opting in opens the socket and sends the consent hello
+  {type:"hello", tools, optIn:true} — the server registers nothing
+  before it — and the same eight tools answer over the new channel,
+  results returning on the same socket. Drops reconnect with bounded
+  exponential backoff + crypto jitter while opted-in; a takeover
+  notice is honored (no auto-reconnect war); toggle-off mid-session
+  is a clean detach; the status line tells the truth at every
+  transition (off / connecting / attached / driver-active /
+  reconnecting / superseded, plus the v2 bridge and file:// states).
+  The explicit ?bridge= override still WINS over the public attach
+  and keeps the v2 SSE+POST transport.
   Zero console errors in every state.
   Build order: T-ARCH -> (T-CA || T-SHELL) -> T-VIS ->
   (T-SCHED || T-SYNTH) -> T-AVBIND -> (T-A11Y || T-PERF) ->
@@ -517,6 +534,26 @@
       transform: translateY(-70%) rotate(45deg);
       pointer-events: none;
     }
+    /* V3-PAGE: the "Allow remote control" consent checkbox. Native
+       checkbox semantics kept on purpose (labelled via label[for],
+       Space-operable, UA-drawn check glyph — the robust, accessible
+       floor) with accent-color carrying the luminous palette onto the
+       checked state; the panel's shared :focus-visible rule below
+       supplies the keyboard ring. VIS judgment: a custom-drawn
+       luminous box was considered and rejected — pseudo-element
+       support on checkboxes is inconsistent across engines, and the
+       native glyph already survives low vision. Checked state is
+       session memory only (script section [9]; no storage API). */
+    #mcp-consent {
+      width: 0.95rem;
+      height: 0.95rem;
+      margin: 0;
+      accent-color: #b9d0ff;
+      cursor: pointer;
+    }
+    #mcp-consent-group:hover #mcp-consent-label {
+      color: var(--fg);           /* the panel's hover idiom */
+    }
     .cfg-btn {
       padding: 0.3rem 0.95rem;
       font: inherit;
@@ -611,8 +648,8 @@
   <!-- Chrome (T-SHELL) — pause/play, volume, rule/scale readout; V2-CTL adds
        the configure toggle + the configuration panel above the pill (and
        V2-STATE its Copy link button, wired in script section [8]; V2-MCP
-       its dormant-on-file:// MCP status line, wired in script section
-       [9]). All of
+       its dormant-on-file:// MCP status line and V3-PAGE its
+       remote-control consent toggle, wired in script section [9]). All of
        it invisible until the mouse moves; fades after ~3 s idle (visibility
        toggles with opacity, so faded controls are unfocusable). T-A11Y:
        labelled groups; Tab from anywhere summons it while the piece runs;
@@ -701,10 +738,25 @@
         <button id="copy-link-btn" class="cfg-btn" type="button"
                 aria-label="Copy a link to this configuration">Copy link</button>
       </div>
+      <!-- V3-PAGE: the consent toggle for PUBLIC remote control. Session
+           memory only (the checkbox's own DOM state — no storage API, no
+           reload survival; default OFF, so an un-opted page makes ZERO
+           attach attempts). Ships hidden; script section [9] reveals it
+           only on http(s) origins without ?bridge= (the explicit local
+           bridge override owns those loads — precedence documented in
+           [9]). On file:// it never appears: the section is inert. -->
+      <div class="cfg-group" id="mcp-consent-group" hidden>
+        <label class="cfg-label" for="mcp-consent"
+               id="mcp-consent-label">Allow remote control</label>
+        <input id="mcp-consent" type="checkbox">
+      </div>
       <div class="cfg-group">
         <!-- V2-MCP: bridge status, written by script section [9] — text
              only, never interactive ("MCP: dormant (file://)" on file://,
-             "MCP: active" once the SSE channel to the bridge is open) -->
+             "MCP: active" once the SSE channel to the bridge is open).
+             V3-PAGE adds the public-attach states alongside: off /
+             connecting / attached / driver-active / reconnecting /
+             superseded. -->
         <span class="cfg-label" id="mcp-status">MCP: dormant</span>
       </div>
     </div>
@@ -4788,7 +4840,7 @@
     })();
 
     /* ======================================================================
-     * [9] LOOM MCP — owner V2-MCP (external tool surface; http(s) only)
+     * [9] LOOM MCP — owner V2-MCP/V3-PAGE (external tool surface; http(s) only)
      * ----------------------------------------------------------------------
      * Contract:
      *   Consumes: the Loom config contract (section [7] — getState + the
@@ -4796,57 +4848,253 @@
      *     the ONLY config surface the tools read or write); Shell.state /
      *     Shell.togglePause (section [6] — pause/resume drive the SAME
      *     transition the chrome's pause control drives); the #mcp-status
-     *     line in the config panel (this section's own chrome surface).
+     *     line + the #mcp-consent "Allow remote control" checkbox in the
+     *     config panel (this section's own chrome surfaces).
      *   Produces (namespace LoomMCP): the eight MCP tools mirroring the
      *     panel's controls one-to-one — get_state, set_rule, set_tempo,
      *     set_scale, reseed, set_volume, pause, resume — and the channel
-     *     that exposes them to external MCP clients (RQ2 Option A):
+     *     that exposes them to external MCP clients. V3: ONE tool
+     *     registry, TWO transports behind it (the surface itself is
+     *     transport-agnostic — a port, not a second implementation):
      *     - ACTIVATION GUARD: everything below runs ONLY on an http(s)
      *       origin. On file:// the section is INERT by construction — the
-     *       guard returns before any EventSource is created, any fetch is
-     *       armed or navigator.modelContext is probed; only the panel's
-     *       status text ("MCP: dormant (file://)") is written. The
-     *       lean-back piece is completely untouched.
-     *     - Channel (to the optional companion bridge, loom-bridge.mjs):
-     *       EventSource GET <bridge>/bridge subscribes to tool
-     *       invocations (native auto-reconnect on drop); fetch POST
-     *       <bridge>/bridge/result carries the envelope back —
-     *       {type:'hello', tools} when the stream opens, {id, result|
-     *       error} per call. <bridge> is this origin by default;
-     *       ?bridge=<origin> overrides (a hosted page may attach to a
-     *       local bridge — loopback is mixed-content-exempt in modern
-     *       browsers). NO localStorage (the no-persistence rule).
+     *       guard returns before any EventSource or WebSocket is created,
+     *       any fetch is armed or navigator.modelContext is probed; only
+     *       the panel's status text ("MCP: dormant (file://)") is
+     *       written, and the consent toggle never appears. The lean-back
+     *       piece is completely untouched.
+     *     - TRANSPORT 1 — the local bridge (?bridge=<origin>, the
+     *       EXPLICIT override; it WINS over public attach, criterion ⑮):
+     *       the V2 SSE+POST channel to the optional companion bridge
+     *       loom-bridge.mjs, verbatim v2 behavior — EventSource GET
+     *       <bridge>/bridge subscribes to tool invocations (native
+     *       auto-reconnect on drop); fetch POST <bridge>/bridge/result
+     *       carries the envelope back — {type:'hello', tools} when the
+     *       stream opens, {id, result|error} per call. The consent
+     *       toggle stays HIDDEN on these loads: a local bridge the user
+     *       launched and pointed at is not remote control.
+     *     - TRANSPORT 2 — the public attach (every other http(s) load;
+     *       the default): consent-gated same-origin WEBSOCKET to the
+     *       V3-WORKER Durable Object (wss://<this host>/attach on https,
+     *       ws:// on http; ?attach=<ws|wss url> is the DEV override for
+     *       driving a wrangler-dev DO from a page served elsewhere —
+     *       cross-port WS needs no CORS). The panel's "Allow remote
+     *       control" checkbox is the SINGLE consent surface: default
+     *       OFF — an un-opted page constructs no WebSocket and no
+     *       EventSource, sends nothing (criterion ⑭: zero network
+     *       attempts); session-only memory (the checkbox's own DOM
+     *       state — no storage API, no reload survival). Opting in
+     *       opens the socket and sends the consent hello
+     *       {type:'hello', tools, optIn:true} — the DO registers
+     *       nothing before it. Tool calls arrive as {type:'call', id,
+     *       name, arguments}; results return over the SAME socket as
+     *       {type:'result', id, result|error} (dispatch() is shared
+     *       with the bridge transport). Reconnect policy (recorded):
+     *       a non-user close while opted-in retries with bounded
+     *       exponential backoff + full jitter — delay drawn from
+     *       [0, min(30 s, 500 ms · 2^step)], crypto-sourced (NOT
+     *       Math.random — the file's single sanctioned Math.random
+     *       stays the reseed pick), step reset on every successful
+     *       open, retries continue while opted-in (DO restarts and
+     *       deploys are covered: a fresh hello simply retakes the
+     *       slot). A {type:'detached} takeover notice is HONORED — no
+     *       auto-reconnect (two reconnecting opted-in tabs would
+     *       ping-pong the one-driver slot forever); cycling the toggle
+     *       off/on is the explicit way to retake it. "loom-ping"
+     *       keepalives ride the DO's runtime auto-answer (no DO wake).
+     *       Toggle-off mid-session = clean detach: socket closed,
+     *       timers cleared, zero further attempts, status "MCP: off".
      *     - Schemas are built FROM the live contract (Loom.scales /
      *       Loom.limits), so MCP clients always see the real enums and
      *       bounds; the manifest order is deterministic.
-     *     - One driver at a time: the bridge keeps only the newest page
-     *       attachment (last write wins); every tool answers with the
-     *       new state snapshot. Argument failures are isError:true
+     *     - One driver at a time: the channel keeps only the newest
+     *       page attachment (last write wins); every tool answers with
+     *       the new state snapshot. Argument failures are isError:true
      *       tool-execution errors with actionable text (the engine still
      *       clamps/rejects underneath — control parity); unknown tools
      *       are JSON-RPC -32602.
+     *     - Status-line truthfulness (criterion ⑭): file:// →
+     *       "MCP: dormant (file://)"; bridge → the v2 strings
+     *       (connecting / active / inactive (no bridge)); public →
+     *       off / connecting / attached (socket open, hello not yet
+     *       sent) / driver-active (hello sent — this tab holds the
+     *       one-driver slot until a detached notice or a close says
+     *       otherwise) / reconnecting / superseded (another tab).
      *     - Bonus (W3C WebMCP draft, feature-detected — zero impact
      *       where the API does not exist): navigator.modelContext
-     *       .registerTool mirrors the same eight handlers for in-browser
-     *       agents.
+     *       .registerTool mirrors the same eight handlers for
+     *       in-browser agents (a LOCAL draft API, no network —
+     *       deliberately outside the public-consent gate, unchanged
+     *       from v2).
      *     Silent by the file-wide rule: no console output anywhere; all
-     *       transport failures surface as the status line only.
+     *     transport failures surface as the status line only.
+     *     NO localStorage (the no-persistence rule).
      * ====================================================================== */
     const LoomMCP = (() => {
       const statusEl = document.getElementById("mcp-status");
+      const consentGroup = document.getElementById("mcp-consent-group");
+      const consentEl = document.getElementById("mcp-consent");
       const setStatus = (t) => { if (statusEl) statusEl.textContent = t; };
+
+      /* -- URL parameters (parsed before the activation guard: pure input,
+         no DOM writes, no network — the ?selftest suite asserts the mode
+         invariants on every protocol) --------------------------------------
+         ?bridge=<origin> — the EXPLICIT local-bridge override (V2): forces
+           the SSE+POST transport and WINS over the public attach. */
+      let bridge = location.origin, bridgeForced = false;
+      {
+        const q = /[?&]bridge=([^&]+)/.exec(location.search);
+        if (q) {
+          try {
+            const u = new URL(decodeURIComponent(q[1]));
+            bridge = u.origin;
+            bridgeForced = true;
+          } catch (err) { /* keep same-origin */ }
+        }
+      }
+
+      /* -- V3 pure helpers: the public-attach URL + the backoff law -------
+         Both are PURE (explicit args) so the ?selftest suite can exercise
+         them without a socket. No Math.random anywhere — jitter draws on
+         crypto so the file's single sanctioned Math.random stays the
+         Reseed pick and the engine stays deterministic (the backoff is
+         transport timing, never weave state). */
+      const BACKOFF_BASE_MS = 500,   // step 0 jitter ceiling
+            BACKOFF_CAP_MS = 30000,  // the bound the delays never exceed
+            KEEPALIVE_MS = 50000;    // loom-ping cadence (runtime answers
+                                     // without waking the DO)
+      function wsUrlFor(search, loc) {
+        /* ?attach=<ws|wss url> — the DEV override: a page served from any
+           local http origin may point at a wrangler dev DO (cross-port WS
+           needs no CORS; the DO's dev allowlist takes localhost origins).
+           Anything that is not a clean ws/wss URL is ignored — same-origin
+           /attach is the ship behavior. */
+        const q = /[?&]attach=([^&]+)/.exec(String(search));
+        if (q) {
+          try {
+            const u = new URL(decodeURIComponent(q[1]));
+            if (u.protocol === "ws:" || u.protocol === "wss:") return u.href;
+          } catch (err) { /* fall through to same-origin */ }
+        }
+        return (loc.protocol === "https:" ? "wss://" : "ws://") +
+               loc.host + "/attach";
+      }
+      function backoffMs(step) {
+        /* full jitter over an exponential ceiling: delay ~ U[0, cap),
+           cap = min(BACKOFF_CAP_MS, BACKOFF_BASE_MS · 2^step) — capped
+           growth (bounded at 30 s), expected delay half the ceiling */
+        const cap = Math.min(BACKOFF_CAP_MS,
+                             BACKOFF_BASE_MS * Math.pow(2, step));
+        const b = new Uint32Array(1);
+        crypto.getRandomValues(b);
+        return Math.floor((b[0] / 4294967296) * cap);
+      }
+
+      /* -- V3 channel state (closure scope so the returned API is uniform
+         across transports; only the public transport ever drives these) -- */
+      let attachAttempts = 0;   // WebSocket constructions (observability)
+      let optIn = false;        // the consent flag — the checkbox's own state
+      let chan = "off";         // public-transport status state (see header)
+
+      /* -- V3 selftest (?selftest — runs on EVERY protocol; mode-aware
+         expectations so the check count is uniform) ---------------------- */
+      function v3SelfTest() {
+        const tag = "[V3-PAGE selftest]";
+        let failed = 0;
+        function report(id, ok, detail) {
+          console.log(tag + " " + (ok ? "PASS" : "FAIL") + " " + id +
+                      (ok || detail === undefined ? "" : " — " + detail));
+          if (!ok) failed++;
+        }
+        const fileMode = location.protocol !== "http:" &&
+                         location.protocol !== "https:";
+        const mode = fileMode ? "file" : (bridgeForced ? "bridge" : "public");
+
+        /* (a) the consent toggle: a labelled checkbox, default OFF, in the
+           markup on every protocol (visibility is per-mode — check b) */
+        const labelled = consentEl && consentEl instanceof HTMLInputElement &&
+          consentEl.type === "checkbox" && !consentEl.checked &&
+          (() => {
+            const l = document.querySelector('label[for="mcp-consent"]');
+            return !!l && /allow remote control/i.test(l.textContent);
+          })();
+        report("a: consent toggle is a labelled checkbox, default OFF",
+               !!labelled);
+
+        /* (b) toggle visibility per mode: hidden on file:// (inert) and on
+           ?bridge= loads (the override owns the channel); visible on every
+           other http(s) origin */
+        const wantHidden = mode !== "public";
+        report("b: toggle " + (wantHidden ? "hidden" : "visible") +
+               " in " + mode + " mode",
+               !!(consentGroup && (consentGroup.hidden === wantHidden)),
+               "hidden=" + (consentGroup && consentGroup.hidden));
+
+        /* (c) the status line is truthful at load for this mode */
+        const wantStatus = { file: "MCP: dormant (file://)",
+                             bridge: "MCP: connecting",
+                             public: "MCP: off" }[mode];
+        report("c: status line '" + wantStatus + "' in " + mode + " mode",
+               !!statusEl && statusEl.textContent === wantStatus,
+               "got '" + (statusEl && statusEl.textContent) + "'");
+
+        /* (d) attach URL: same-origin /attach with the scheme mapped */
+        const d1 = wsUrlFor("", { protocol: "https:",
+                                  host: "loom.arrangedgodly.com" }) ===
+                   "wss://loom.arrangedgodly.com/attach";
+        const d2 = wsUrlFor("", { protocol: "http:",
+                                  host: "localhost:8788" }) ===
+                   "ws://localhost:8788/attach";
+        report("d: attach URL is same-origin /attach (https→wss, http→ws)",
+               d1 && d2);
+
+        /* (e) the ?attach= DEV override: honored for ws/wss, ignored
+           otherwise (garbage / other schemes fall back to same-origin) */
+        const ov = "ws://localhost:8787/attach";
+        const e1 = wsUrlFor("?attach=" + encodeURIComponent(ov),
+                            { protocol: "https:", host: "x.example" }) === ov;
+        const e2 = wsUrlFor("?attach=" + encodeURIComponent("http://x/attach"),
+                            { protocol: "https:", host: "x.example" }) ===
+                   "wss://x.example/attach";
+        const e3 = wsUrlFor("?attach=not-a-url",
+                            { protocol: "https:", host: "x.example" }) ===
+                   "wss://x.example/attach";
+        report("e: ?attach= override ws/wss-only, else same-origin",
+               e1 && e2 && e3);
+
+        /* (f) backoff law: full jitter bounded by the exponential cap */
+        let fOk = true, fWhy = "";
+        for (let step = 0; step <= 8; step++) {
+          const cap = Math.min(BACKOFF_CAP_MS,
+                               BACKOFF_BASE_MS * Math.pow(2, step));
+          const d = backoffMs(step);
+          if (!(d >= 0 && d < cap)) {
+            fOk = false;
+            fWhy = "step " + step + ": " + d + " not in [0," + cap + ")";
+            break;
+          }
+        }
+        report("f: backoff delays within [0, min(30s, 500ms·2^step))",
+               fOk, fWhy);
+
+        /* (g) zero attach attempts before consent — the criterion-⑭
+           invariant at parse time (the checkbox is still unchecked; no
+           WebSocket was ever constructed; bridge mode never arms the
+           public transport at all) */
+        report("g: zero attach attempts before consent (" + mode + " mode)",
+               attachAttempts === 0 && !optIn,
+               "attempts=" + attachAttempts + " optIn=" + optIn);
+
+        console.log(tag + (failed === 0
+          ? " ALL PASS — consent/attach invariants green for V3-PAGE"
+          : " FAIL — " + failed + " check(s) failed"));
+      }
 
       /* activation guard — MCP exists only on http(s) origins */
       if (location.protocol !== "http:" && location.protocol !== "https:") {
         setStatus("MCP: dormant (file://)");
+        if (String(location.search).indexOf("selftest") !== -1) v3SelfTest();
         return { active: false, status: () => "dormant" };
-      }
-
-      let bridge = location.origin;          // ?bridge=<origin> overrides
-      const q = /[?&]bridge=([^&]+)/.exec(location.search);
-      if (q) {
-        try { bridge = new URL(decodeURIComponent(q[1])).origin; }
-        catch (err) { /* keep same-origin */ }
       }
 
       /* -- the state snapshot every tool answers with ---------------------- */
@@ -5028,7 +5276,9 @@
         ];
       }
 
-      /* -- channel: SSE subscribe + POST envelope --------------------------- */
+      /* -- channel plumbing: the POST envelope (bridge transport) + the
+         shared call executor (BOTH transports — the tool surface never
+         knows which channel carried the invocation) ---------------------- */
       function post(msg) {
         fetch(bridge + "/bridge/result", {
           method: "POST",
@@ -5050,21 +5300,138 @@
             (err && err.message ? err.message : String(err)) } };
         }
       }
-      setStatus("MCP: connecting");
-      const es = new EventSource(bridge + "/bridge");
-      es.onopen = () => {
-        setStatus("MCP: active");
-        post({ type: "hello", tools: manifest() });
-      };
-      es.addEventListener("call", (e) => {
-        let m = null;
-        try { m = JSON.parse(e.data); } catch (err) { return; }
-        if (!m || m.type !== "call") return;
-        post(Object.assign({ id: m.id }, dispatch(m)));
-      });
-      es.onerror = () => {           // native auto-reconnect carries on
-        setStatus("MCP: inactive (no bridge)");
-      };
+      /* -- transport selection (V3 precedence) ------------------------------
+       * ONE dispatch() registry, TWO transports. ?bridge= (explicit) forces
+       * the V2 SSE+POST channel to the local Node bridge — verbatim v2
+       * behavior, and it WINS over the public attach (the consent toggle
+       * stays hidden on those loads). Every other http(s) load gets the
+       * consent-gated public WebSocket attach — which does NOTHING until
+       * the checkbox is checked (criterion ⑭: default-off = zero network
+       * attempts, not even a probe). */
+      if (bridgeForced) {
+        /* TRANSPORT 1 — local bridge (V2, unchanged) */
+        chan = "bridge";
+        setStatus("MCP: connecting");
+        const es = new EventSource(bridge + "/bridge");
+        es.onopen = () => {
+          setStatus("MCP: active");
+          post({ type: "hello", tools: manifest() });
+        };
+        es.addEventListener("call", (e) => {
+          let m = null;
+          try { m = JSON.parse(e.data); } catch (err) { return; }
+          if (!m || m.type !== "call") return;
+          post(Object.assign({ id: m.id }, dispatch(m)));
+        });
+        es.onerror = () => {         // native auto-reconnect carries on
+          setStatus("MCP: inactive (no bridge)");
+        };
+      } else {
+        /* TRANSPORT 2 — the public attach (V3): consent-gated same-origin
+         * WebSocket to the DO, hand-rolled reconnect (EventSource's free
+         * auto-reconnect is gone by design — deploys drop every socket,
+         * and only deliberate backoff belongs here). */
+        const url = wsUrlFor(location.search, location);
+        let ws = null;               // live socket (null = none)
+        let step = 0;                // backoff step (reset on open)
+        let superseded = false;      // {type:"detached"} received — honored
+        let userClosed = false;      // toggle-off detach in progress
+        let retryTimer = 0, pingTimer = 0;
+        const setChan = (s, text) => { chan = s; setStatus(text); };
+
+        function teardown() {        // stop everything socket-bound
+          clearInterval(pingTimer);
+          pingTimer = 0;
+          if (ws) {
+            const s = ws;
+            ws = null;
+            try { s.close(1000, "consent withdrawn"); } catch (err) {}
+          }
+        }
+        function scheduleRetry() {
+          if (!optIn || superseded) return;
+          setChan("reconnecting", "MCP: reconnecting");
+          clearTimeout(retryTimer);
+          retryTimer = setTimeout(attach, backoffMs(step++));
+        }
+        function attach() {
+          if (!optIn || superseded || ws) return;
+          userClosed = false;
+          attachAttempts++;
+          setChan("connecting", "MCP: connecting");
+          let sock;
+          try { sock = new WebSocket(url); }
+          catch (err) { scheduleRetry(); return; }
+          ws = sock;
+          sock.onopen = () => {
+            if (ws !== sock) return; // a teardown already won the race
+            step = 0;                // a successful open resets the backoff
+            setChan("attached", "MCP: attached");
+            /* the consent hello — the DO registers NOTHING before this
+               (optIn must be exactly true; the manifest rides along so
+               the page stays the source of truth for the tool surface) */
+            try {
+              sock.send(JSON.stringify(
+                { type: "hello", tools: manifest(), optIn: true }));
+            } catch (err) { /* status-only, per the file-wide rule */ }
+            /* by the wire contract a new hello always takes the one-driver
+               slot — from here until a detached notice or a close says
+               otherwise, this tab IS the driver */
+            setChan("driver-active", "MCP: driver-active");
+            pingTimer = setInterval(() => {
+              try {
+                if (sock.readyState === 1) sock.send("loom-ping");
+              } catch (err) {}
+            }, KEEPALIVE_MS);
+          };
+          sock.onmessage = (e) => {
+            if (e.data === "loom-pong") return;  // keepalive auto-answer
+            let m = null;
+            try { m = JSON.parse(e.data); } catch (err) { return; }
+            if (!m || typeof m !== "object") return;
+            if (m.type === "call") {
+              try {
+                if (sock.readyState === 1) sock.send(JSON.stringify(
+                  Object.assign({ type: "result", id: m.id }, dispatch(m))));
+              } catch (err) {}
+            } else if (m.type === "detached") {
+              /* one-driver takeover: another opted-in tab hello'd. HONOR it
+                 — no auto-reconnect (two reconnecting tabs would ping-pong
+                 the slot forever). Cycling the toggle off/on is the
+                 explicit, user-driven way to retake it. */
+              superseded = true;
+              teardown();
+              setChan("superseded", "MCP: superseded (another tab)");
+            }
+          };
+          sock.onerror = () => {};   // a close always follows; status-only
+          sock.onclose = () => {
+            clearInterval(pingTimer);
+            pingTimer = 0;
+            if (ws === sock) ws = null;
+            if (!optIn || userClosed || superseded) return;
+            scheduleRetry();         // transient drop — bounded backoff
+          };
+        }
+
+        /* boot: consent OFF, zero attempts; the checkbox is the only arm */
+        if (consentGroup) consentGroup.hidden = false;
+        setChan("off", "MCP: off");
+        if (consentEl) consentEl.addEventListener("change", () => {
+          optIn = consentEl.checked;
+          if (optIn) {
+            superseded = false;      // re-consent may retake the slot
+            step = 0;
+            attach();
+          } else {                   // clean detach: close, stop, done
+            userClosed = true;
+            clearTimeout(retryTimer);
+            teardown();
+            setChan("off", "MCP: off");
+          }
+        });
+      }
+      if (String(location.search).indexOf("selftest") !== -1) v3SelfTest();
 
       /* -- WebMCP bonus: the same tools for in-browser agents ---------------- */
       if (navigator.modelContext &&
@@ -5091,6 +5458,15 @@
         status: () => (statusEl ? statusEl.textContent : ""),
         manifest: manifest,
         call: (name, args) => dispatch({ name: name, arguments: args }),
+        /* V3 observability (harness + ?selftest) — NOT a control surface:
+           the checkbox is the only consent writer; nothing here can arm
+           the channel. channel: off / connecting / attached / driver-active
+           / reconnecting / superseded (public transport) or "bridge". */
+        get channel() { return chan; },
+        get optIn() { return optIn; },
+        get attempts() { return attachAttempts; },
+        attachUrl: wsUrlFor,
+        backoffMs: backoffMs,
       };
     })();
 
@@ -5191,7 +5567,34 @@
        config panel's #mcp-status line reports the channel (active /
        inactive (no bridge) / dormant (file://)). Where the W3C
        WebMCP draft exists, navigator.modelContext registers the same
-       tools for in-browser agents. */
+       tools for in-browser agents.
+       Since V3-PAGE the default http(s) path is the PUBLIC attach,
+       and it is consent-gated end to end: without ?bridge= the
+       section arms nothing at boot — no EventSource probe, no
+       WebSocket — until the panel's "Allow remote control"
+       checkbox (default off, session-only DOM state, no storage
+       API) is checked. Opting in opens the same-origin WebSocket
+       (/attach on the v3 Durable Object; ?attach=<ws url> is the
+       documented dev override), sends the consent hello
+       {type:"hello", tools, optIn:true} — the DO registers nothing
+       before it — and from then on {type:"call"} invocations
+       dispatch through the SAME registry the bridge used, each
+       result returning over the socket as {type:"result",
+       id, result|error}. A drop reconnects with bounded
+       exponential backoff + full jitter (crypto-sourced — the
+       file's single Math.random stays the Reseed pick) while
+       opted-in; a {type:"detached"} takeover notice is honored
+       with no auto-reconnect (two opted-in tabs would otherwise
+       ping-pong the one-driver slot — cycling the toggle is the
+       explicit retake); "loom-ping" keepalives ride the DO's
+       runtime auto-answer. Toggling off mid-session closes the
+       socket cleanly, clears every timer, and makes zero further
+       attempts. The status line walks the states truthfully:
+       off → connecting → attached → driver-active, reconnecting
+       under backoff, superseded by another tab — alongside the v2
+       bridge states (connecting / active / inactive (no bridge))
+       and dormant (file://). ?bridge= still WINS over the public
+       attach and keeps the SSE+POST transport verbatim. */
   </script>
 </body>
 </html>
