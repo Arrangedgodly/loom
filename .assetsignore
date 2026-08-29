@@ -1,0 +1,9 @@
+# .assetsignore — Workers static-assets upload filter (gitignore format).
+# Wrangler 4.127.1 reads this from the root of the assets directory (the
+# repo root) and skips every matching file (verified against the installed
+# wrangler's asset walk + current Cloudflare docs; negation patterns work).
+#
+# The public site is EXACTLY ONE file — index.html — at the repo root.
+# Exclude everything else (sources, docs, dev state) from the asset bundle:
+*
+!index.html

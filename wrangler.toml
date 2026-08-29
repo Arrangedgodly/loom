@@ -1,19 +1,29 @@
-# wrangler.toml — the LOOM channel Worker (V3-WORKER, per the RQ3-committed
-# skeleton in docs/ultron/research/rq3-cloudflare-worker-do.md).
-# This is the WORKER config that `npx wrangler deploy` publishes (V3-DEPLOY,
-# owner-gated): the Durable Object + its migration. It is NOT a Pages config
-# (no pages_build_output_dir — see the production-log V3-WORKER entry for the
-# flagged Pages DO-binding TOML question owned by V3-DEPLOY).
+# wrangler.toml — the LOOM Worker (V3-DEPLOY restructure, 2026-08-28).
+# ONE Worker (`loom`) serves everything on loom.arrangedgodly.com:
+#   - the static site (index.html via Workers static assets + env.ASSETS)
+#   - the public MCP endpoint (/mcp + /attach via the LoomChannel DO)
+# The hostname is a WORKER CUSTOM DOMAIN bound to this Worker name (verified
+# live: workers/domains loom.arrangedgodly.com -> service loom; the site was
+# never on Cloudflare Pages). Deploy = ONE owner-gated `npx wrangler deploy`
+# (site + DO + routing together — replaces the previous script in place; the
+# custom domain keeps serving across the deploy). The standalone
+# `loom-channel` worker (V3-WORKER's first-deploy shape) stays deployed on
+# the account untouched — owner-decidable later; its repo config is retired
+# by this rewrite.
 #
-# Local dev (the V3-WORKER recipe):
-#   npx wrangler dev                       # → http://localhost:8787 (the DO)
-#   npx wrangler pages dev . --do LOOM_CHANNEL=LoomChannel@loom-channel
-#                                          # → http://localhost:8788 (pages
-#                                          #   + functions/ forwarders)
-name = "loom-channel"
-main = "mcp-worker.js"
-compatibility_date = "2026-04-07"   # >= this enables WS auto close-reply; later is fine
-workers_dev = false                 # true only if a workers.dev probe URL is wanted
+# Local dev (single origin — the full same-origin stack, finally testable):
+#   npx wrangler dev      # → http://localhost:8787 (index.html at / AND
+#                         #   POST /mcp AND WS /attach on one origin)
+name = "loom"
+main = "loom-site.js"
+compatibility_date = "2026-04-07"   # >= this enables WS auto close-reply; the date every V3 verification ran under (the placeholder site worker it replaces ran 2026-08-28 — irrelevant, its script is fully replaced)
+workers_dev = true                  # parity with the live site worker (loom.arrangedgodly.workers.dev currently serves; that origin cannot attach or POST /mcp from a browser — Origin allowlist — set false + redeploy to retire the URL)
+
+[assets]
+directory = "."                     # repo root; .assetsignore prunes the upload to EXACTLY index.html
+binding = "ASSETS"                  # env.ASSETS — loom-site.js's fallback for every non-matched path
+# html_handling default (auto-trailing-slash): / serves index.html; /index.html redirects to /
+# not_found_handling default (none): unknown paths 404
 
 [[durable_objects.bindings]]
 name = "LOOM_CHANNEL"
